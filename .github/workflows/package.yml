@@ -1,0 +1,52 @@
+name: Package
+
+on:
+  pull_request:
+    paths:
+      - pyproject.toml
+      - setup.py
+      - voxelmorph/**
+      - .github/workflows/package.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install packaging tools
+        run: python -m pip install --upgrade build check-wheel-contents twine
+      - name: Build wheel and source distribution
+        run: python -m build
+      - name: Check distribution metadata
+        run: python -m twine check --strict dist/*
+      - name: Check wheel contents
+        run: check-wheel-contents dist/*.whl
+      - name: Rebuild wheel from source distribution
+        run: python -m pip wheel --no-deps --wheel-dir rebuilt dist/*.tar.gz
+      - name: Install built wheel without dependencies
+        run: python -m pip install --no-deps dist/*.whl
+      - name: Check installed metadata outside source tree
+        working-directory: ${{ runner.temp }}
+        run: |
+          python - <<'PY'
+          from importlib.metadata import distribution
+
+          package = distribution("voxelmorph")
+          assert package.version
+          assert package.files
+          assert any(str(path).endswith("voxelmorph/__init__.py") for path in package.files)
+          PY
+      - name: Upload distributions
+        uses: actions/upload-artifact@v7
+        with:
+          name: python-distributions
+          path: dist/*
+          if-no-files-found: error
